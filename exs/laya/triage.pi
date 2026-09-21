@@ -1,0 +1,73 @@
+% Support-ticket triage with the Laya decision model, run in-process.
+%
+% Build Picat with the laya module and fetch a checkpoint first:
+%
+%   git submodule update --init --recursive
+%   cmake -S . -B build -G Ninja -DPICAT_LAYA=ON
+%   cmake --build build --parallel
+%   python3 emu/laya.cpp/scripts/download_model.py --variant english
+%
+% Then, from the repository root:
+%
+%   PICATPATH=lib2 build/emu/picat exs/laya/triage.pi emu/laya.cpp/models/laya
+%
+% The single argument is the checkpoint directory; it defaults to
+% emu/laya.cpp/models/laya.  Add "cuda" as a second argument to run on the
+% CUDA backend when Picat was configured with -DPICAT_LAYA_CUDA=ON.
+
+import laya.
+
+main => main([]).
+
+main(Args) =>
+    Dir = cond(Args = [D|_], D, "emu/laya.cpp/models/laya"),
+    Options = cond(Args = [_, "cuda"|_], [cuda], [cpu]),
+    printf("loading %s ...%n", Dir),
+    Agent = laya_load(Dir, Options),
+    printf("backend: %s%n%n", laya_backend(Agent)),
+
+    Tickets = [
+        [from = "user@acme.com",
+         subject = "Duplicate charge on invoice #4411",
+         body = "Hi, we were billed twice for March. Please refund the duplicate today or we will cancel our plan."],
+        [from = "ops@example.org",
+         subject = "Dashboard returns HTTP 500 since this morning",
+         body = "Every page of the analytics dashboard fails with a server error. Nothing changed on our side."],
+        [from = "cto@startup.io",
+         subject = "Pricing for 250 seats",
+         body = "We are evaluating your enterprise tier. Could you send a quote for 250 seats with annual billing?"]
+    ],
+
+    Questions = [
+        department = choice("Which department should handle this request?",
+                            [billing = "invoices, payments, refunds",
+                             technical = "bugs, outages, system errors",
+                             sales = "pricing, new contracts",
+                             other = "everything else"]),
+        urgency = score("How urgent is this request?",
+                        ["not urgent", "soon", "critical deadline or blocking issue"]),
+        churn_risk = noul("Does the user threaten to cancel or leave?"),
+        refund_requested = noul("Does the user explicitly request a refund?")
+    ],
+
+    % One batched forward pass for all tickets and all questions.
+    Requests = [[state = Ticket, questions = Questions] : Ticket in Tickets],
+    Results = laya_predict_batch(Agent, Requests),
+
+    foreach ({Ticket, Result} in zip(Tickets, Results))
+        Answers = Result.get(answers),
+        Department = Answers.get(department),
+        printf("%s%n", Ticket.get_pair(subject)),
+        printf("  department: %w (confidence %.2f)%n",
+               Department.get(choice), Department.get(confidence)),
+        printf("  urgency:    %.2f%n", Answers.get(urgency).get(score)),
+        printf("  churn risk: %.2f%n", Answers.get(churn_risk).get(noul)),
+        printf("  refund:     %.2f%n", Answers.get(refund_requested).get(noul)),
+        printf("  tokens:     %d%n%n", Result.get(usage).get(input_tokens))
+    end,
+
+    laya_destroy(Agent).
+
+% Look a key up in a Key=Value list.
+get_pair(Pairs, Key) = Value =>
+    [Value|_] = [V : K = V in Pairs, K == Key].

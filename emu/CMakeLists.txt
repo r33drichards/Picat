@@ -21,4 +21,10 @@ add_executable(picat ${HEADERS} ${SOURCES})
 target_link_libraries(picat PRIVATE m pthread espresso kissat)
 target_include_directories(picat PRIVATE "${CMAKE_SOURCE_DIR}/emu/espresso")
 
+if(PICAT_LAYA)
+    target_sources(picat PRIVATE laya_interface.cpp)
+    target_compile_definitions(picat PRIVATE LAYA)
+    target_link_libraries(picat PRIVATE laya)
+endif()
+
 install(TARGETS picat)

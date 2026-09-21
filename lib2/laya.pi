@@ -1,0 +1,165 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% laya.pi - in-process Laya typed-decision inference for Picat
+%
+% Laya (https://huggingface.co/convaiinnovations/laya) is a non-autoregressive
+% decision model: it answers typed questions (choice / score / noul) about a
+% piece of state (text, an email, a JSON document) in a single forward pass.
+% This module drives the laya.cpp runtime linked into the Picat executable
+% (emu/laya_interface.cpp).  Picat must be built with -DPICAT_LAYA=ON.
+%
+%   import laya.
+%
+%   main =>
+%       Agent = laya_load("models/laya"),
+%       State = [from = "user@acme.com",
+%                subject = "Duplicate charge on invoice #4411",
+%                body = "We were billed twice for March. Refund it or we cancel."],
+%       Questions = [
+%           department = choice("Which department should handle this request?",
+%                               [billing = "invoices, payments, refunds",
+%                                technical = "bugs, outages, system errors",
+%                                sales = "pricing, new contracts",
+%                                other = "everything else"]),
+%           urgency = score("How urgent is this request?",
+%                           ["not urgent", "soon", "critical deadline or blocking issue"]),
+%           churn_risk = noul("Does the user threaten to cancel or leave?")
+%       ],
+%       Answers = laya_predict(Agent, State, Questions),
+%       println(Answers.get(department).get(choice)),      % billing
+%       println(Answers.get(urgency).get(score)),          % 1.44
+%       println(Answers.get(churn_risk).get(noul)).        % 0.8248
+%
+% Data conventions
+%   State and question definitions are ordinary Picat data that mirror the
+%   JSON the model expects:
+%     - a list of Key=Value pairs is a JSON object (order is preserved, which
+%       matters for choice options);
+%     - a Picat map is also accepted and converted to pairs (order is then
+%       whatever the map iteration order is);
+%     - other lists and {..} arrays are JSON arrays;
+%     - strings and atoms are JSON strings (true/false/null are literals);
+%     - [] is the empty string "".
+%   Results come back as Picat maps whose keys are atoms (digit-only keys
+%   such as score levels become integers).  For a choice
+%   question the answer map has keys type, choice, confidence, probabilities
+%   (a map option -> probability) and action; score answers have score,
+%   probabilities and legend; noul answers have noul (probability of true)
+%   and confidence.
+%
+% Errors are thrown as laya_error(Message).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+module laya.
+
+%
+% laya_load(Dir) = Agent
+% laya_load(Dir, Options) = Agent
+%   Dir is the checkpoint directory (containing model.safetensors,
+%   rl_agent_config.json and tokenizer/).  Options is a list drawn from:
+%     cpu               run on the CPU backend (default)
+%     cuda              run on the CUDA backend (laya must be built with CUDA)
+%     bf16              native mixed BF16 (CUDA only)
+%     flash_fp32        fused FP32 attention (CUDA only)
+%     tensor_core_fp32  packed FP16 Tensor Core FP32 path (CUDA only)
+%
+laya_load(Dir) = laya_load(Dir, []).
+
+laya_load(Dir, Options) = Agent =>
+    ((string(Dir) ; atom(Dir)) -> true ; handle_exception($string_expected(Dir), laya_load)),
+    (list(Options) -> true ; handle_exception($list_expected(Options), laya_load)),
+    foreach (Opt in Options)
+        (membchk(Opt, [cpu, cuda, bf16, flash_fp32, tensor_core_fp32]) -> true
+         ; handle_exception($unknown_option(Opt), laya_load))
+    end,
+    Cuda = cond(membchk(cuda, Options), 1, 0),
+    Bf16 = cond(membchk(bf16, Options), 1, 0),
+    Flash = cond(membchk(flash_fp32, Options), 1, 0),
+    TensorCore = cond(membchk(tensor_core_fp32, Options), 1, 0),
+    bp.pi_laya_load(to_string(Dir), Cuda, Bf16, Flash, TensorCore, Agent).
+
+%
+% laya_destroy(Agent): release the weights held by Agent.
+% laya_destroy_all: release every loaded agent.
+%
+laya_destroy(Agent@laya(_)) => bp.pi_laya_destroy(Agent).
+laya_destroy(Agent) => handle_exception($laya_agent_expected(Agent), laya_destroy).
+
+laya_destroy_all => bp.pi_laya_destroy_all.
+
+%
+% laya_backend(Agent) = Name: the ggml backend name, e.g. "CPU" or "CUDA0".
+%
+laya_backend(Agent@laya(_)) = Name => bp.pi_laya_backend(Agent, Name).
+laya_backend(Agent) = _ => handle_exception($laya_agent_expected(Agent), laya_backend).
+
+%
+% Question constructors.  Each returns the Key=Value list the model expects.
+%
+%   choice(Instructions, Criteria)  Criteria: [option = description, ...]
+%                                   or a plain list of option names
+%   score(Instructions, Levels)     Levels: ordered list of level descriptions
+%   noul(Instructions)              yes/no question
+%   noul(Instructions, Criteria)    Criteria: [false = ..., true = ...]
+%
+choice(Instructions, Criteria) = [type = choice, instructions = Instructions, criteria = Criteria].
+score(Instructions, Levels) = [type = score, instructions = Instructions, criteria = Levels].
+noul(Instructions) = [type = noul, instructions = Instructions].
+noul(Instructions, Criteria) = [type = noul, instructions = Instructions, criteria = Criteria].
+
+%
+% laya_predict(Agent, State, Questions) = Answers
+%   Evaluates every question in Questions (a list of Id = Definition pairs,
+%   or a map) against State, in one forward pass.  Answers is a map from
+%   question id (atom) to an answer map.
+%
+laya_predict(Agent, State, Questions) = Answers =>
+    Results = laya_predict_batch(Agent, [[state = State, questions = Questions]]),
+    Results = [Result|_],
+    Answers = Result.get(answers).
+
+%
+% laya_predict_batch(Agent, Requests) = Results
+%   Requests is a list of request objects, each [state = S, questions = Qs].
+%   All questions of all requests run in one batched forward pass.  Results
+%   is a list of maps with keys answers, usage and model, one per request.
+%
+laya_predict_batch(Agent@laya(_), Requests) = Results =>
+    (list(Requests), not string(Requests) -> true ; handle_exception($list_expected(Requests), laya_predict_batch)),
+    Encoded = [laya_encode(Request) : Request in Requests],
+    bp.pi_laya_predict(Agent, Encoded, Raw),
+    Results = laya_decode(Raw).
+laya_predict_batch(Agent, _) = _ => handle_exception($laya_agent_expected(Agent), laya_predict_batch).
+
+%
+% laya_predict_json(Agent, RequestJson) = ResultJson
+%   Raw JSON pass-through for callers that already have laya's wire format.
+%   RequestJson is one request object or an array of them; ResultJson is the
+%   JSON array of results as text.
+%
+laya_predict_json(Agent@laya(_), RequestJson) = ResultJson =>
+    (string(RequestJson) -> true ; handle_exception($string_expected(RequestJson), laya_predict_json)),
+    bp.pi_laya_predict_json(Agent, RequestJson, ResultJson).
+laya_predict_json(Agent, _) = _ => handle_exception($laya_agent_expected(Agent), laya_predict_json).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Term normalisation.  The C side understands pair lists, plain lists,
+% arrays, strings, atoms and numbers; maps are flattened here.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+private
+laya_encode(Term) = Encoded, map(Term) =>
+    Encoded = [Key = laya_encode(Value) : Key = Value in map_to_list(Term)].
+laya_encode(Term) = Term, string(Term) => true.
+laya_encode(Key = Value) = Encoded => Encoded = (Key = laya_encode(Value)).
+laya_encode(Term) = Encoded, list(Term) =>
+    Encoded = [laya_encode(Element) : Element in Term].
+laya_encode(Term) = Encoded, array(Term) =>
+    Encoded = {laya_encode(Element) : Element in Term}.
+laya_encode(Term) = Term => true.
+
+% JSON objects arrive as laya_obj(Pairs); turn them into maps recursively.
+private
+laya_decode(laya_obj(Pairs)) = Map =>
+    Map = new_map([Key = laya_decode(Value) : Key = Value in Pairs]).
+laya_decode(Term) = Term, string(Term) => true.
+laya_decode(Term) = Decoded, list(Term) =>
+    Decoded = [laya_decode(Element) : Element in Term].
+laya_decode(Term) = Term => true.

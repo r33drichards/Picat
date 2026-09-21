@@ -1013,6 +1013,10 @@ int c_IS_SMALL_INT_c() {
 extern int fann_cpreds();
 #endif
 
+#ifdef LAYA
+extern int laya_cpreds();
+#endif
+
 #ifdef SCIPSUITE
 extern int Cboot_scip();
 #endif
@@ -1179,6 +1183,10 @@ void Cboot() {
 
 #ifdef FANN
     fann_cpreds();
+#endif
+
+#ifdef LAYA
+    laya_cpreds();
 #endif
     //  Cboot_TP();
 }

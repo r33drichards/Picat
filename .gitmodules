@@ -1,0 +1,3 @@
+[submodule "emu/laya.cpp"]
+	path = emu/laya.cpp
+	url = https://github.com/r33drichards/laya.cpp

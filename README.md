@@ -71,6 +71,32 @@ of these modules, applications must set the environment
 variable PICATPATH to include the folder, in which the module
 resides, or start picat with the option "-path" set.
 
+Laya decision-model inference (optional)
+----------------------------------------
+Picat can run the Laya typed-decision model
+(https://huggingface.co/convaiinnovations/laya) in-process, through
+the laya.cpp runtime (ggml) that is vendored as the git submodule
+"emu/laya.cpp" and exposed as the module "lib2/laya.pi". Laya answers
+choice / score / yes-no questions about a piece of text or a JSON
+document in one forward pass, on the CPU or on CUDA GPUs.
+
+Build requirements: a C++20 compiler, CMake 3.27+, ICU and
+nlohmann-json (on Debian-like systems: libicu-dev and
+nlohmann-json3-dev). CUDA is optional.
+
+    git submodule update --init --recursive
+    cmake -S . -B build -G Ninja -DPICAT_LAYA=ON      # add -DPICAT_LAYA_CUDA=ON for GPUs
+    cmake --build build --parallel
+    python3 emu/laya.cpp/scripts/download_model.py --variant english
+    PICATPATH=lib2 build/emu/picat exs/laya/triage.pi emu/laya.cpp/models/laya
+
+The module provides laya_load/1-2, laya_predict/3, laya_predict_batch/2,
+laya_predict_json/2, laya_backend/1 and laya_destroy/1, plus the
+question constructors choice/2, score/2 and noul/1-2. See the header
+of "lib2/laya.pi" for the data conventions and "exs/laya/triage.pi"
+for a complete example. Without -DPICAT_LAYA=ON nothing changes in
+the executable.
+
 Please contact:
 - picat@picat-lang.org
 - picat-lang@googlegroups.com 
