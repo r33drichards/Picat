@@ -1,6 +1,18 @@
+# SIMD is opt-in: SIMD=1 requires a runtime with WebAssembly SIMD support.
+SIMD ?= 0
+ifneq ($(SIMD),0)
+ifneq ($(SIMD),1)
+$(error SIMD must be 0 or 1)
+endif
+endif
+SIMD_FLAGS =
+ifeq ($(SIMD),1)
+SIMD_FLAGS = -msimd128
+endif
+
 EXT = .js
-CPP    = em++ -DGC -DGCC -DPICAT -DSAT -DFANN_NO_DLL -DFANN
-CC     = emcc -DGC -DGCC -DPICAT -DSAT -DFANN_NO_DLL -DFANN
+CPP    = em++ $(SIMD_FLAGS) -DGC -DGCC -DPICAT -DSAT -DFANN_NO_DLL -DFANN
+CC     = emcc $(SIMD_FLAGS) -DGC -DGCC -DPICAT -DSAT -DFANN_NO_DLL -DFANN
 CCC=$(CC) -c
 CPPC=$(CPP) -c
 
@@ -17,3 +29,13 @@ LFLAGS = -lm \
 	-sNO_DISABLE_EXCEPTION_CATCHING
 
 include common.mak
+
+# common.mak shares object names across configurations. Rebuild all objects when
+# compiler/linker flags change, including a switch back from SIMD to scalar.
+.PHONY: emscripten-config-force
+.emscripten-build-config: emscripten-config-force
+	@printf '%s\n' '$(CC)' '$(CPP)' '$(CFLAGS)' '$(LFLAGS)' '$(ESPRESSO_FLAGS)' '$(KISSAT_FLAGS)' > $@.tmp
+	@cmp -s $@.tmp $@ || cp $@.tmp $@
+	@rm -f $@.tmp
+
+$(OBJ) $(ESPRESSO_OBJ) $(KISSAT_OBJ): .emscripten-build-config

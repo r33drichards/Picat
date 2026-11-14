@@ -52,3 +52,25 @@ Outputs:
   (`event.c`) won't spawn real threads.
 - Verified: REPL arithmetic, `cp` 8/100-queens, `sat` (kissat) solving,
   running `.pi` files from disk via the node build.
+
+## Optional SIMD
+
+The default remains scalar for compatibility. To enable standard WebAssembly
+128-bit SIMD and LLVM autovectorization:
+
+```sh
+make -f Makefile.emscripten SIMD=1 -j4
+```
+
+Use `SIMD=0` (the default) to switch back. Compiler and linker configuration
+changes rebuild the shared object files automatically; use separate source
+copies for concurrent builds. Output names remain `picat.js` / `picat.wasm`.
+The SIMD artifact requires a SIMD-capable engine; there is no automatic scalar
+fallback or runtime feature selection. Keep the scalar artifact available if
+supporting older engines. Native makefiles are unaffected.
+
+The flag reaches all engine, Espresso, Kissat, and FANN compilation units and
+the final link. It enables compiler vectorization; it does not guarantee that
+Picat workloads get faster. See [the reproducible comparison](../bench/wasm/README.md)
+for correctness checks, instruction inspection, and startup versus warmed-work
+measurements. See also [Emscripten's SIMD documentation](https://emscripten.org/docs/porting/simd.html).
