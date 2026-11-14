@@ -704,6 +704,7 @@ extern BPLONG no_gcs;
         if (toam_signal_vec == 0 && in_critical_region == 0) {  \
             gc_is_working = 1;                                  \
             if (expand_local_global_stacks(0) == BP_ERROR) {    \
+                gc_is_working = 0;                              \
                 fprintf(stderr, "%% error: OUT OF MEMORY\n");   \
                 bp_exception = et_OUT_OF_MEMORY_STACK;          \
                 goto interrupt_handler;                         \
@@ -821,13 +822,11 @@ extern BPLONG no_gcs;
         }                                                               \
     }
 
-#define TABLE_ANS_COMPARE(t1, t2, r) r = ((ISINT(t1) && ISINT(t2)) ? (INTVAL(t1)-INTVAL(t2)) : bp_compare(t1, t2))
-
 /* create an answer table to store 'answer' and the new answer on the stack if it is not a variant of 'answer'. */
 #define CREATE_ANSWER_TABLE_ADD_ANSWER(stack_arg_ptr, answer, arity, subgoal_entry){ \
-    answer_table = allocateAnswerTable(answer, arity);                  \
-    if ((BPLONG)answer_table == BP_ERROR) goto table_error;             \
-    GT_ANSWER_TABLE(subgoal_entry) = (BPLONG)answer_table;              \
-    if (addTableAnswer(stack_arg_ptr, arity, subgoal_entry) == BP_ERROR) \
-      goto table_error;                                                 \
-  }    
+        answer_table = allocateAnswerTable(answer, arity);              \
+        if ((BPLONG)answer_table == BP_ERROR) goto table_error;         \
+        GT_ANSWER_TABLE(subgoal_entry) = (BPLONG)answer_table;          \
+        if (addTableAnswer(stack_arg_ptr, arity, subgoal_entry) == BP_ERROR) \
+            goto table_error;                                           \
+    }    

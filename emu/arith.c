@@ -151,24 +151,8 @@ void init_arith_sym() {
     xor2 = insert_sym("xor", 3, 2);
 }
 
-BPLONG bp_math_add(BPLONG op1, BPLONG op2)
+BPLONG bp_math_add_num_num(BPLONG op1, BPLONG op2)
 {
-    BPLONG_PTR top;
-
-    DEREF(op1); DEREF(op2);
-    if (!ISNUM(op1)) {
-        op1 = eval_arith(op1);
-        if (op1 == BP_ERROR) {
-            return BP_ERROR;
-        }
-    }
-    if (!ISNUM(op2)) {
-        op2 = eval_arith(op2);
-        if (op2 == BP_ERROR) {
-            return BP_ERROR;
-        }
-    }
-
     if (ISINT(op1)) {
         if (ISINT(op2)) {
             op1 = INTVAL(op1) + INTVAL(op2);
@@ -201,6 +185,54 @@ BPLONG bp_math_add(BPLONG op1, BPLONG op2)
     }
 }
 
+/* prevent c-stack overflow by using goto */
+BPLONG bp_math_add(BPLONG op1, BPLONG op2)
+{
+    BPLONG elm, sum;
+    BPLONG_PTR top;
+    BPLONG_PTR ptr;
+    SYM_REC_PTR sym_ptr;
+
+    sum = BP_ZERO;
+loop1:
+    DEREF(op1); 
+    if (!ISNUM(op1)) {
+        if (ISSTRUCT(op1)){
+            ptr = (BPLONG_PTR)UNTAGGED_ADDR(op1);
+            sym_ptr = (SYM_REC_PTR)FOLLOW(ptr);
+            if (sym_ptr == add2) {   // nested additions
+                elm = eval_arith(FOLLOW(ptr+1));
+                if (elm == BP_ERROR) {return BP_ERROR;}
+                sum = bp_math_add_num_num(sum, elm);
+                if (sum == BP_ERROR) { return BP_ERROR;}
+                op1 = FOLLOW(ptr+2);
+                goto loop1;
+            } 
+        }
+        op1 = eval_arith(op1);
+        if (op1 == BP_ERROR) { return BP_ERROR;}
+    }
+    sum = bp_math_add_num_num(sum, op1);
+loop2:
+    DEREF(op2);
+    if (!ISNUM(op2)) {
+        if (ISSTRUCT(op2)){
+            ptr = (BPLONG_PTR)UNTAGGED_ADDR(op2);
+            sym_ptr = (SYM_REC_PTR)FOLLOW(ptr);
+            if (sym_ptr == add2) {   // nested additions
+                elm = eval_arith(FOLLOW(ptr+1));
+                if (elm == BP_ERROR) {return BP_ERROR;}
+                sum = bp_math_add_num_num(sum, elm);
+                if (sum == BP_ERROR) { return BP_ERROR;}
+                op2 = FOLLOW(ptr+2);
+                goto loop2;
+            } 
+        }
+        op2 = eval_arith(op2);
+        if (op2 == BP_ERROR) { return BP_ERROR;}
+    }
+    return bp_math_add_num_num(sum, op2);
+}
 
 BPLONG bp_math_sub(BPLONG op1, BPLONG op2)
 {
@@ -589,6 +621,14 @@ BPLONG bp_math_idiv_div(BPLONG op1, BPLONG op2)
     }
 }
 
+/* y != 0 */
+static INLINE BPLONG python_mod(BPLONG x, BPLONG y) {
+    BPLONG r = x%y;
+    if (r != 0 && ((r < 0) != (y < 0)))
+        r += y;
+    return MAKEINT(r);
+}
+
 BPLONG bp_math_mod(BPLONG op1, BPLONG op2)
 {
     BPLONG_PTR top;
@@ -613,7 +653,7 @@ BPLONG bp_math_mod(BPLONG op1, BPLONG op2)
                 bp_exception = et_ZERO_DIVISOR; return BP_ERROR;
             }
             if (op1 > 0 && op2 > 0) {
-                return MAKEINT(op1%op2);
+                return python_mod(op1, op2);
             }
             if (BP_IN_28B_INT_RANGE(op1) && BP_IN_28B_INT_RANGE(op2)) {
                 f = (double)op1/(double)op2;
@@ -639,7 +679,7 @@ BPLONG bp_math_mod(BPLONG op1, BPLONG op2)
             }
 #ifdef M64BITS
             i = bp_bigint_to_native_long(op1);
-            if (i != 0) return MAKEINT(i%op2);
+            if (i != 0) return python_mod(i, op2);
 #endif
             return bp_mod_bigint_bigint(op1, bp_int_to_bigint(op2));
         } else if (IS_BIGINT(op2)) {
@@ -1699,7 +1739,9 @@ BPLONG bp_math_pow(BPLONG op1, BPLONG op2)
         op1 = INTVAL(op1);
         if (ISINT(op2)) {
             op2 = INTVAL(op2);
-            if (op2 >= 0) {
+            if (op2 == 0) {
+                return BP_ONE;
+            } else if (op2 > 0) {
                 BPLONG res = bp_pow_int_int(op1, op2);
                 if (res == BP_ERROR) res = bp_pow_bigint_int(bp_int_to_bigint(op1), op2);
                 return res;
@@ -1726,7 +1768,9 @@ BPLONG bp_math_pow(BPLONG op1, BPLONG op2)
     } else {
         if (ISINT(op2)) {
             op2 = INTVAL(op2);
-            if (op2 >= 0) {
+            if (op2 == 0) {
+                return BP_ONE;
+            } else if (op2 > 0) {
                 return bp_pow_bigint_int(op1, op2);
             } else {
                 f1 = bp_bigint_to_double(op1);

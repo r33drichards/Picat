@@ -322,7 +322,7 @@ extern BPLONG global_call_number;
 extern BPLONG number_of_spy_points;
 extern UW16 dg_flag_word;
 
-extern FILE *curr_in, *curr_out;
+extern FILE *curr_in, *curr_out, *picat_terminal;
 
 extern BPLONG stack_size, stack_size_limit, parea_size, findall_area_size, trail_size;  /* declared in init.c */
 
@@ -410,6 +410,8 @@ extern SYM_REC_PTR findall_result2;
 extern SYM_REC_PTR interval_psc;
 extern SYM_REC_PTR call_cleanup_psc;
 extern SYM_REC_PTR plan_psc;
+extern SYM_REC_PTR plan_unbounded1_psc;
+extern SYM_REC_PTR plan_unbounded3_psc;
 extern SYM_REC_PTR set_constructor_psc;
 extern SYM_REC_PTR comma_psc;
 extern SYM_REC_PTR float_psc;

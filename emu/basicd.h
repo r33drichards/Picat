@@ -36,6 +36,7 @@ BPLONG number_of_spy_points = 0;
 UW16 dg_flag_word;
 
 FILE *curr_in, *curr_out;
+FILE *picat_terminal = NULL;
 
 BPLONG n_backtracks = 0;
 BPLONG_PTR stack_low_addr;
@@ -122,6 +123,8 @@ SYM_REC_PTR findall_result2;
 SYM_REC_PTR interval_psc;
 SYM_REC_PTR call_cleanup_psc;
 SYM_REC_PTR plan_psc;
+SYM_REC_PTR plan_unbounded1_psc;
+SYM_REC_PTR plan_unbounded3_psc;
 SYM_REC_PTR comma_psc;
 SYM_REC_PTR set_constructor_psc;
 SYM_REC_PTR float_psc;

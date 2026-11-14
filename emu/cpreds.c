@@ -900,7 +900,7 @@ int currentTime() {
 #if (defined(WIN32) && defined(__MINGW32__))
     BPLONG t;
 #else
-    long t;
+    time_t t;
 #endif
     struct tm *ct;
     BPLONG Year, Month, Day, Hour, Min, Sec;
@@ -1095,8 +1095,6 @@ void Cboot() {
     insert_cpred("c_HTABLE_HCODE", 2, c_HTABLE_HCODE);
     /* insert_cpred("c_TUPLES_TO_TRIE",3,c_TUPLES_TO_TRIE); */
 
-    insert_cpred("c_table_cardinality_limit", 3, c_table_cardinality_limit);
-    insert_cpred("c_set_all_table_cardinality_limit", 1, c_set_all_table_cardinality_limit);
     insert_cpred("c_init_global_each_session", 0, c_init_global_each_session);
     insert_cpred("c_GET_GC_TIME", 1, c_GET_GC_TIME);
 
@@ -1134,10 +1132,18 @@ void Cboot() {
 
     insert_cpred("c_bigint_sign_size", 3, c_bigint_sign_size);
 
+    insert_cpred("c_GET0_terminal", 1, c_GET0_terminal);
     /* insert_cpred("show_susp_frames",0,show_susp_frames); */
 
     Cboot_numbervars();
     Cboot_mic();
+
+#ifdef CG
+    Cboot_par();
+    Cboot_thread();
+    Cboot_satext();
+#endif
+
     Cboot_debug();
     Cboot_assert();
     Cboot_delay();
@@ -1168,6 +1174,7 @@ void Cboot() {
     insert_cpred("c_call_espresso", 5, c_call_espresso);
     insert_cpred("c_call_espresso_pb", 6, c_call_espresso_pb);
 #endif
+    insert_cpred("c_RESET_PLANNER_SUBGOALS", 0, resetPlannerSubgoals);
 
 #ifdef SCIPSUITE
     Cboot_scip();
